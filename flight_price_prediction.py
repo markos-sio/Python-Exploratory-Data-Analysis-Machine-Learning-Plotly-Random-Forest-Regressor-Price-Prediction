@@ -6,11 +6,11 @@ Created on Sun Jun 16 16:41:54 2024
 """
 
 import pandas as pd
-import matplotlib.pyplot as plt
-from sklearn.model_selection import KFold, cross_val_predict
+from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error,r2_score
 import math
+import matplotlib.pyplot as plt
 
 
 # Importing the csv file and creating a dataframe using pandas
@@ -85,9 +85,8 @@ print(data.head())
 
 
 
+from sklearn.model_selection import KFold, cross_val_predict
 # Training Regression Model
-
-
 data_without_price = data.drop("price", axis=1) # Excluding the target variable 'price' column
 X, y = data_without_price, data["price"] # Features are everything except 'price', target is 'price'
 
@@ -119,10 +118,65 @@ plt.ylabel("Predicted Prices")
 plt.title("Predicted Prices vs Original Prices")
 plt.show()
 
+
 # Train the model on the entire dataset to get feature importances
 rf.fit(X, y)
 
-# Calculate and print feature importances from the trained RandomForest model
-importances = dict(zip(rf.feature_names_in_, rf.feature_importances_))
-sorted_importances = sorted(importances.items(), key=lambda x: x[1], reverse=True)
-print(sorted_importances)
+#Extracting feature names and their importances from the model
+feature_names = rf.feature_names_in_ # Getting the names of the features used by the model
+feature_importances = rf.feature_importances_ # Getting the importance of each feature
+
+# Combining the feature names and their importances into a dictionary
+importances =  dict(zip(feature_names, feature_importances))
+
+#Sorting the features by their importances in descending order
+sorted_importances = sorted(importances.items(), key=lambda x: x[1], reverse=True) # importances.items() -list of tuples, x[1] for the second ellement, reverse=True for descending order
+
+#Print the top five sorted list of features and their importances
+top_five_importances = sorted_importances[:5]
+print(top_five_importances)
+
+plt.figure(figsize=(8, 6))
+plt.bar(
+        [x[0] for x in top_five_importances],
+        [x[1] for x in top_five_importances]
+)
+
+# Function to preprocess new data
+def preprocess_new_data(new_data):
+    # Apply the same transformations as the training data
+    new_data["class"] = new_data["class"].apply(lambda x: 0 if x == "Economy" else 1)
+    new_data["stops"] = pd.factorize(new_data["stops"])[0]
+
+    # One-hot encode categorical variables
+    new_data = pd.get_dummies(new_data, columns=["airline", "source_city", "destination_city", "departure_time", "arrival_time"])
+
+    # Ensure the new data has the same columns as the training data
+    missing_cols = set(X.columns) - set(new_data.columns)
+    for col in missing_cols:
+        new_data[col] = 0
+    new_data = new_data[X.columns]
+
+    return new_data
+
+# Example new data for prediction
+new_data = pd.DataFrame({
+    "airline": ["IndiGo"],
+    "source_city": ["Delhi"],
+    "destination_city": ["Cochin"],
+    "departure_time": ["Morning"],
+    "arrival_time": ["Evening"],
+    "stops": ["1 stop"],
+    "class": ["Economy"],
+    "duration": [180],
+    "days_left": [30]
+})
+
+# Preprocess the new data
+new_data_preprocessed = preprocess_new_data(new_data)
+
+# Predict the price for the new data
+predicted_price = rf.predict(new_data_preprocessed)
+
+print("Predicted Price:", predicted_price)
+

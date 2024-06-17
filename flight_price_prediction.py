@@ -126,7 +126,120 @@ plt.ylabel("Predicted Prices")
 plt.title("Predicted Prices vs Original Prices")
 plt.show()
 
-# Calculate and print feature importances from the trained RandomForest model
-importances = dict(zip(rf.feature_names_in_, rf.feature_importances_))
-sorted_importances = sorted(importances.items(), key=lambda x: x[1], reverse=True)
-print(sorted_importances)
+#Extracting feature names and their importances from the model
+feature_names = rf.feature_names_in_ # Getting the names of the features used by the model
+feature_importances = rf.feature_importances_ # Getting the importance of each feature
+
+# Combining the feature names and their importances into a dictionary
+importances =  dict(zip(feature_names, feature_importances))
+
+#Sorting the features by their importances in descending order
+sorted_importances = sorted(importances.items(), key=lambda x: x[1], reverse=True) # importances.items() -list of tuples, x[1] for the second ellement, reverse=True for descending order
+
+#Print the top five sorted list of features and their importances
+top_five_importances = sorted_importances[:5]
+print(top_five_importances)
+
+plt.figure(figsize=(8, 6))
+plt.bar(
+        [x[0] for x in top_five_importances],
+        [x[1] for x in top_five_importances]
+)
+
+from sklearn.model_selection import RandomizedSearchCV
+from scipy.stats import randint
+
+param_dist = {
+    'n_estimators': randint(100,300),
+    'max_depth': [None, 10, 20, 30, 40, 50],
+    'min_samples_split': randint(2, 11),
+    'min_samples_leaf': randint(1, 5),
+    'max_features': [1.0, 'auto', 'sqrt']
+}
+
+rf = RandomForestRegressor(n_jobs=-1)
+
+random_search = RandomizedSearchCV(estimator=rf,
+                                   param_distributions=param_dist,
+                                   n_iter=2,
+                                   cv=3,
+                                   scoring="neg_mean_squared_error",
+                                   verbose=2,
+                                   random_state=10,
+                                   n_jobs=-1
+)
+
+random_search.fit(X_train, y_train)
+
+best_regressor = random_search.best_estimator_
+
+
+# Predict the prices on the test data
+y_pred = best_regressor.predict(X_test)
+
+# Calculate and print the R^2 score
+print('R Squared', r2_score(y_test, y_pred))
+
+# Calculate and print the Mean Absolute Error
+print('Mean Absolute Error', mean_absolute_error(y_test, y_pred))
+
+# Calculate and print the Mean Squared Error
+print('Mean Squared Error', mean_squared_error(y_test, y_pred))
+
+# Calculate and print the Root Mean Squared Error
+print('Root Mean Squared', math.sqrt(mean_squared_error(y_test, y_pred)))
+
+
+
+
+# Predicting the price fow new given data
+new_data = pd.DataFrame({
+    'airline': ['IndiGo'],
+    'source_city': ['Delhi'],
+    'destination_city': ['Cochin'],
+    'departure_time': ['Morning'],
+    'arrival_time': ['Evening'],
+    'stops': ['1 stop'],
+    'class': ['Economy'],
+    'duration': [180],
+    'days_left': [30]
+})
+
+# Preprocess the new data point
+new_data["class"] = new_data["class"].apply(lambda x: 0 if x == "Economy" else 1)
+new_data["stops"] = pd.factorize(new_data["stops"])[0]
+
+# Get the dummies of source city column and join them to the new data
+source_city_dummies = pd.get_dummies(new_data["source_city"], prefix="source_city")
+new_data = new_data.join(source_city_dummies)
+
+# Get the dummies of destination_city column and join them to the new data
+destination_city_dummies = pd.get_dummies(new_data["destination_city"], prefix="destination_city")
+new_data = new_data.join(destination_city_dummies)
+
+# Get the dummies of airline column and join them to the new data
+airline_dummies = pd.get_dummies(new_data["airline"], prefix="airline")
+new_data = new_data.join(airline_dummies)
+
+# Get the dummies of arrival_time column and join them to the new data
+arrival_time_dummies = pd.get_dummies(new_data["arrival_time"], prefix="arrival_time")
+new_data = new_data.join(arrival_time_dummies)
+
+# Get the dummies of departure_time column and join them to the new data
+departure_time_dummies = pd.get_dummies(new_data["departure_time"], prefix="departure_time")
+new_data = new_data.join(departure_time_dummies)
+
+# Drop original columns that were one-hot encoded
+new_data = new_data.drop(["airline", "source_city", "destination_city", "departure_time", "arrival_time"], axis=1)
+
+# Ensure the new_data has the same columns as the training data
+missing_cols = set(X_train.columns) - set(new_data.columns)
+for c in missing_cols:
+    new_data[c] = 0
+new_data = new_data[X_train.columns]
+
+# Predict the price using the best_regressor model
+predicted_price = best_regressor.predict(new_data)
+
+print(f'Predicted price for the new data point: {predicted_price[0]}')
+

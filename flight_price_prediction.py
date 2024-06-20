@@ -1,44 +1,153 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sun Jun 16 16:41:54 2024
+Created on Sun Jun 20 2024
 
-@author: markos
+@author: markos-sio
 """
 
 import pandas as pd
-from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error,r2_score
+from sklearn.model_selection import KFold, cross_val_predict
 import math
-import matplotlib.pyplot as plt
+import missingno as msno
 
-
+""" 1) Exploratory Data Analysis (EDA)"""
 # Importing the csv file and creating a dataframe using pandas
 data = pd.read_csv("Clean_Dataset.csv")
 
 # Printing the head of the dataframe 
-print(data.head())
+display(data.head())
 
 # Printing the column names of the dataframe
 print(data.columns)
 
 
 # General statistics
-print(data.dtypes)
-print(data.describe())
+print(f'Data shape :\n {data.shape}\n')
+print(f'Data types :\n {data.dtypes}\n')
+print(data.iloc[:, 1:].describe()) # Excluding the fisrt Unname: 0 column
 print(data.info())
 
+# Checking for missing values
+display(data.isnull().sum())
+msno.matrix(data)  
+
+# Checking for duplicate values if any according to unique valued column Unnamed: 0  
+display(data.duplicated("Unnamed: 0").sum())
 
 # Inspecting the unique values of some columns
 
-columns_of_interest = ["airline", "source_city", "destination_city", "departure_time", "arrival_time", "stops", "class"]
+categorical_columns = ["airline", "source_city", "destination_city", "departure_time", "arrival_time", "stops", "class"]
 
-for column in columns_of_interest:
-    print(f'The unique values of {column} are: {data[column].unique()}\n')
+for column in categorical_columns:
+    print(f'{column} values:\n {data[column].unique()}\n')
+
+# Counting values
+for column in categorical_columns:
+    # Getting the value counts for the current column
+    column_data = data[column].value_counts().reset_index() #converting value_counts() into a dataframe
+    column_data.columns = [column, 'count'] # Setting the name of the columns in the dataframe
     
-"""
-Preprocessing
+    # Create a histogram with Plotly Express
+    fig = px.bar(column_data, 
+                 x=column, 
+                 y='count', 
+                 color=column, 
+                 color_continuous_scale='Viridis',
+                 labels={'count': 'Count', column: column}, 
+                 title=f"Frequency of {column}")
+    
+    # Show the plot
+    fig.show()
 
+# Donut charts revealing the percentages
+# Defining the number of rows and columns for subplots
+rows, cols = 2, 4
+
+# Creating a subplot for each categorical column with domain type
+fig = make_subplots(rows=rows, cols=cols, subplot_titles=categorical_columns[:rows*cols],
+                    specs=[[{'type': 'domain'} for _ in range(cols)] for _ in range(rows)])
+
+# Iterating over each categorical column
+for i, column in enumerate(categorical_columns):
+    if i >= rows * cols:  # Ensure not to exceed the subplot grid
+        break
+    
+    # Calculating the counts and percentages
+    counts = data[column].value_counts()
+    percentages = counts / counts.sum() * 100
+
+    # Creating a donut chart
+    donut_chart = go.Pie(labels=counts.index, values=percentages, hole=0.4, 
+                         textinfo='label+percent', insidetextorientation='radial',
+                         marker=dict(colors=px.colors.qualitative.Pastel))
+    
+    # Determining the row and column for the current plot
+    row = (i // cols) + 1
+    col = (i % cols) + 1
+    
+    # Addind the donut chart to the subplot
+    fig.add_trace(donut_chart, row=row, col=col)
+
+# Updating layout to increase the gap between subplots and adjust figure size
+fig.update_layout(height=600, width=1400, showlegend=False, 
+                  title_text='Donut Charts with Percentages for Categorical Features', title_x=0.5)
+
+# Displaying the figure
+fig.show()
+ 
+# Let΄s examine price distribution
+display(data.iloc[:, -1:].describe())
+price_range = data['price'].max() - data['price'].min()
+print(f'The range of price is: {price_range}')
+
+
+# Creating the histogram 
+fig = px.histogram(
+    data, 
+    x='price', 
+    nbins=20, 
+    marginal='violin',
+    title='Price Distribution', 
+    color_discrete_sequence=['navy'],
+    width=800,  
+    height=750   
+                   
+)                 
+# Show the plot
+fig.show()
+
+
+
+#Let΄s check the mean price by each categorical column
+
+for column in categorical_columns:
+    # Computing the mean price for each category
+    mean_prices = data.groupby(column)['price'].mean().reset_index()
+    
+    # Creating a bar plot 
+    fig = px.bar(
+        mean_prices,
+        x=column,
+        y='price',
+        labels={'price': 'Mean Price', column: column},
+        title=f"Mean Price by {column}",
+        color='price',
+        color_continuous_scale='Viridis'
+    )
+    
+    # Show the plot
+    fig.show()
+
+""" 2) Modeling """
+
+"""
 We are going to proceed one_hot encoding for the columns:
 airline, source_city, destination_city and departure_time
 as they have a small number of non-numerical unique values .
@@ -81,14 +190,26 @@ data = data.drop(["airline", "source_city", "destination_city", "departure_time"
 
 print(data.head())
 
+# Let΄s dive into the correlations between variables
+corr_matrix = data.corr()
 
+# Creating the heatmap using Plotly Express
+fig = px.imshow(
+    corr_matrix, 
+    text_auto=True,  
+    color_continuous_scale='Viridis', 
+    title='Correlation Matrix Heatmap',
+    width=2000,  # Adjust the width of the plot if needed
+    height=2000
+)
+
+fig.show()
 
 """Regression Model"""
 
-from sklearn.model_selection import KFold, cross_val_predict
-# Training Regression Model
-data_without_price = data.drop("price", axis=1) # Excluding the target variable 'price' column
-X, y = data_without_price, data["price"] # Features are everything except 'price', target is 'price'
+# Excluding the target variable 'price' column
+data_without_price = data.drop("price", axis=1)
+X, y = data_without_price, data["price"]  # Features are everything except 'price', target is 'price'
 
 # Initializing the RandomForestRegressor model
 rf = RandomForestRegressor()
@@ -99,63 +220,89 @@ kf = KFold(n_splits=5, shuffle=True, random_state=42)
 # Cross-validation predictions
 y_pred = cross_val_predict(rf, X, y, cv=kf)
 
-# Calculating and printing the R^2 score
-print('R Squared', r2_score(y, y_pred))
+# Calculating metrics
+r2 = r2_score(y, y_pred)
+mae = mean_absolute_error(y, y_pred)
+mse = mean_squared_error(y, y_pred)
+rmse = math.sqrt(mse)
 
-# Calculating and printing the Mean Absolute Error
-print('Mean Absolute Error', mean_absolute_error(y, y_pred))
+# Printing metrics
+print('R Squared:', r2)
+print('Mean Absolute Error:', mae)
+print('Mean Squared Error:', mse)
+print('Root Mean Squared Error:', rmse)
 
-# Calculating and printing the Mean Squared Error
-print('Mean Squared Error', mean_squared_error(y, y_pred))
+# Creating a DataFrame for plotting
+plot_data = pd.DataFrame({
+    'Original Price': y,
+    'Predicted Price': y_pred
+})
 
-# Calculating and printing the Root Mean Squared Error
-print('Root Mean Squared', math.sqrt(mean_squared_error(y, y_pred)))
+# Creating scatter plot 
+fig = px.scatter(
+    plot_data, 
+    x='Original Price', 
+    y='Predicted Price', 
+    title='Predicted Prices vs Original Prices',
+    labels={'Original Price': 'Original Price', 'Predicted Price': 'Predicted Price'},
+    width=800,
+    height=600
+)
 
-# Plotting the predicted prices vs the original prices
-plt.scatter(y, y_pred)
-plt.xlabel("Original Price")
-plt.ylabel("Predicted Prices")
-plt.title("Predicted Prices vs Original Prices")
-plt.show()
+fig.show()
 
-""" A) Comparison between Mean Absolute Error (MAE) and  range Price (dependent Variable) """
+""" A) Comparison between Mean Absolute Error (mae) and  range Price (dependent Variable) """
 
 price_min = data["price"].min()
 price_max = data["price"].max()
 price_range = price_max - price_min
 print(f'Price Range: {price_range}')
 
-MAE =  mean_absolute_error(y, y_pred)
-MAE_percentage = (MAE / price_range) * 100
-print(f'MAE as percentage of Range: {MAE_percentage:.2f}%')
-
+mae_percentage = (mae / price_range) * 100
+print(f'mae as percentage of Range: {mae_percentage:.2f}%')
 
 """ B) Residual Analysis """
 
 residuals = y - y_pred
-plt.scatter(y_pred, residuals)
-plt.axhline(y=0, color='r', linestyle='--')
-plt.xlabel("Predicted Prices")
-plt.ylabel("Residuals")
-plt.title("Residuals vs Predicted Prices")
-plt.show()
+
+# Creating a DataFrame for plotting
+plot_data = pd.DataFrame({
+    'Predicted Prices': y_pred,
+    'Residuals': residuals
+})
+
+# Create scatter plot 
+fig = px.scatter(
+    plot_data, 
+    x='Predicted Prices', 
+    y='Residuals', 
+    title='Residuals vs Predicted Prices',
+    labels={'Predicted Prices': 'Predicted Prices', 'Residuals': 'Residuals'},
+    width=800,
+    height=600
+)
+
+# Adding horizontal line at y=0 (zero line)
+fig.add_hline(y=0, line_dash="dash", line_color="red")
+
+fig.show()
 
 
 """ C) Cross-Validation Consistency Check """
 
 from sklearn.model_selection import cross_val_score
 cv_scores = cross_val_score(rf, X, y, cv=kf, scoring='neg_mean_absolute_error')
-print(f'Cross-validated MAE: {-cv_scores.mean()} (std: {cv_scores.std()})')
+print(f'Cross-validated mae: {-cv_scores.mean()} (std: {cv_scores.std()})')
 
 
-""" D) Acceptable range of MAE """
+""" D) Acceptable range of mae """
 
 avg_price = data["price"].mean()
 print(f'Average Price: {avg_price}')
-if MAE < 0.1 * avg_price:  # Assuming 10% of average price as threshold
-    print("MAE is within acceptable range.")
+if mae < 0.1 * avg_price:  # Assuming 10% of average price as threshold
+    print("mae is within acceptable range.")
 else:
-    print("MAE is outside acceptable range.")
+    print("mae is outside acceptable range.")
 
         
 """ E) Feature Importance and Interpretation """
@@ -175,16 +322,26 @@ sorted_importances = sorted(importances.items(), key=lambda x: x[1], reverse=Tru
 
 #Printing the top three sorted list of features and their importances
 top_three_importances = sorted_importances[:3]
-display(top_three_importances)
+print(top_three_importances)
 
-plt.figure(figsize=(7, 5))
-plt.bar([x[0] for x in top_three_importances],
-        [x[1] for x in top_three_importances]
+# Creating a DataFrame for plotting 
+plot_data = pd.DataFrame({
+    'Features': [x[0] for x in top_three_importances],
+    'Importance': [x[1] for x in top_three_importances]
+})
+
+# Creating a bar plot 
+fig = px.bar(
+    plot_data,
+    x='Features',
+    y='Importance',
+    title='Top 3 Feature Importances',
+    labels={'Features': 'Features', 'Importance': 'Importance'},
+    width=700,
+    height=500
 )
-plt.xlabel('Features')
-plt.ylabel('Importance')
-plt.title('Top 3 Feature Importances')
-plt.show()
+
+fig.show()
 
 
 """ Predicting price value given unprocessed data """
@@ -195,10 +352,10 @@ def preprocess_new_data(new_data):
     new_data["class"] = new_data["class"].apply(lambda x: 0 if x == "Economy" else 1)
     new_data["stops"] = pd.factorize(new_data["stops"])[0]
 
-    # One-hot encoding categorical variables
+    # One-hot encode categorical variables
     new_data = pd.get_dummies(new_data, columns=["airline", "source_city", "destination_city", "departure_time", "arrival_time"])
 
-    # Ensuring the new data has the same columns as the training data
+    # Ensure the new data has the same columns as the training data
     missing_cols = set(X.columns) - set(new_data.columns)
     for col in missing_cols:
         new_data[col] = 0
@@ -219,11 +376,10 @@ new_data = pd.DataFrame({
     "days_left": [30]
 })
 
-# Preprocessing the new data
+# Preprocess the new data
 new_data_preprocessed = preprocess_new_data(new_data)
 
-# Predicting the price for the new data
+# Predict the price for the new data
 predicted_price = rf.predict(new_data_preprocessed)
 
 print("Predicted Price:", predicted_price)
-
